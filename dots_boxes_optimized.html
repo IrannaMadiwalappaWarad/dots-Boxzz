@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dots & Boxes - Connect & Conquer</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#6366f1',
+                        'p1-color': '#3b82f6', // Blue
+                        'p2-color': '#ef4444', // Red
+                        'board-bg': '#f8fafc',
+                        'board-bg-dark': '#0f172a',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #board-container {
+            display: grid;
+            background-color: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            padding: clamp(14px, 3vw, 26px);
+            box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.16);
+            transition: background-color 0.3s, box-shadow 0.3s;
+            margin: 0 auto;
+            max-width: 100%;
+            overflow: auto;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #board-container:focus-visible { outline: 3px solid #818cf8; outline-offset: 4px; }
+        @media (max-width: 520px) { #board-container { border-radius: 16px; } }
+
+        .dark #board-container {
+            background-color: #0f172a;
+            border-color: #334155;
+            box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.55);
+        }
+
+        /* Dots */
+        .dot {
+            width: var(--dot-size, 16px);
+            height: var(--dot-size, 16px);
+            min-width: var(--dot-size, 16px);
+            min-height: var(--dot-size, 16px);
+            background-color: #475569;
+            border: 2px solid rgba(255,255,255,.9);
+            border-radius: 50%;
+            place-self: center;
+            z-index: 10;
+            box-shadow: 0 1px 3px rgba(15,23,42,.22);
+            pointer-events: none;
+        }
+        .dark .dot { background-color: #64748b; }
+
+        /* Line Hitboxes (Larger clickable area) */
+        .line-hitbox {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .line-hitbox.played {
+            cursor: default;
+        }
+
+        /* Visual Lines inside hitboxes */
+        .line-visual {
+            background-color: transparent;
+            border-radius: 9999px;
+            transition: all 0.2s ease;
+        }
+        
+        .h-line { width: 100%; height: 24px; place-self: center; }
+        .h-line .line-visual { width: 100%; height: 6px; }
+        
+        .v-line { height: 100%; width: 24px; place-self: center; }
+        .v-line .line-visual { height: 100%; width: 6px; }
+
+        /* Hover States */
+        @media (hover: hover) {
+            .line-hitbox:hover:not(.played) .line-visual {
+                background-color: #cbd5e1;
+                transform: scale(1.2);
+            }
+            .dark .line-hitbox:hover:not(.played) .line-visual {
+                background-color: #334155;
+            }
+        }
+
+        /* Played Line Colors */
+        .line-hitbox.played-p1 .line-visual { 
+            background-color: #3b82f6; 
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); 
+        }
+        .line-hitbox.played-p2 .line-visual { 
+            background-color: #ef4444; 
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); 
+        }
+
+        /* Box / Cell styles */
+        .box-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            min-height: 0;
+            font-size: clamp(1rem, 4vw, 2rem);
+            font-weight: 900;
+            border-radius: 10px;
+            transition: background-color .22s ease, color .22s ease, transform .22s ease;
+            margin: 3px;
+        }
+        button, input, select { font: inherit; }
+        button:focus-visible, input:focus-visible, select:focus-visible {
+            outline: 3px solid #818cf8;
+            outline-offset: 3px;
+        }
+        button { touch-action: manipulation; }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+        
+        .box-cell.claimed-p1 { 
+            background-color: rgba(59, 130, 246, 0.15); 
+            color: #3b82f6; 
+        }
+        .box-cell.claimed-p2 { 
+            background-color: rgba(239, 68, 68, 0.15); 
+            color: #ef4444; 
+        }
+
+        /* Animations */
+        @keyframes popIn {
+            0% { transform: scale(0.3); opacity: 0; }
+            70% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop { animation: popIn 0.4s ease-out forwards; }
+        
+        @keyframes scorePop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); color: var(--tw-color-brand); }
+            100% { transform: scale(1); }
+        }
+        .score-pop { animation: scorePop 0.4s ease-out; }
+
+        @media (max-width: 640px) {
+            header h1 { font-size: 1.5rem; }
+            #game-screen > div:first-child { gap: 10px; margin-bottom: 20px; }
+            #p1-card, #p2-card { padding: 12px; }
+            #display-p1-score, #display-p2-score { font-size: 2.25rem; }
+            #turn-badge { padding: 8px 12px; font-size: .7rem; }
+            #game-screen > div:last-child { margin-top: 20px; flex-wrap: wrap; justify-content: center; }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-300">
+
+    <header class="w-full max-w-5xl mx-auto p-4 flex justify-between items-center relative z-10">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight text-brand dark:text-indigo-400">DOTS & BOXES</h1>
+            <p class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-1">Connect • Claim • Conquer</p>
+        </div>
+        <div class="flex gap-2">
+            <button id="btn-theme" class="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow hover:bg-slate-100 dark:hover:bg-slate-700 transition" aria-label="Toggle Theme">
+                🌙
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow flex flex-col items-center justify-center p-4 relative w-full max-w-5xl mx-auto">
+        
+        <section id="setup-screen" class="w-full max-w-md bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl transition-all">
+            <h2 class="text-3xl font-black text-center mb-2 text-slate-800 dark:text-white">Game Setup</h2>
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">Choose your mode, set the board, and connect the dots.</p>
+            
+            <div class="flex p-1 mb-6 bg-slate-100 dark:bg-slate-700 rounded-xl shadow-inner">
+                <button id="mode-single" class="flex-1 py-3 rounded-lg bg-white dark:bg-slate-600 shadow-md text-brand dark:text-indigo-300 text-sm font-bold transition transform scale-100">Single Player</button>
+                <button id="mode-two" class="flex-1 py-3 rounded-lg text-slate-500 dark:text-slate-400 text-sm font-bold transition hover:text-slate-800 dark:hover:text-slate-200">Two Player</button>
+            </div>
+
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-sm font-bold mb-1.5 text-slate-600 dark:text-slate-300">Player 1 Name</label>
+                    <input type="text" id="p1-name" value="Player 1" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:border-brand focus:ring-0 outline-none transition font-semibold text-slate-800 dark:text-white">
+                </div>
+                
+                <div id="p2-container" class="hidden">
+                    <label class="block text-sm font-bold mb-1.5 text-slate-600 dark:text-slate-300">Player 2 Name</label>
+                    <input type="text" id="p2-name" value="Player 2" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:border-brand focus:ring-0 outline-none transition font-semibold text-slate-800 dark:text-white">
+                </div>
+
+                <div id="difficulty-container">
+                    <label class="block text-sm font-bold mb-1.5 text-slate-600 dark:text-slate-300">Computer Difficulty</label>
+                    <select id="difficulty" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:border-brand focus:ring-0 outline-none transition font-semibold cursor-pointer">
+                        <option value="easy">Easy (Random Moves)</option>
+                        <option value="medium" selected>Medium (Standard Logic)</option>
+                        <option value="hard">Hard (Avoids giving points)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold mb-1.5 text-slate-600 dark:text-slate-300">Board Size (Dots)</label>
+                    <select id="board-size" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:border-brand focus:ring-0 outline-none transition font-semibold cursor-pointer">
+                        <option value="3">3 × 3 (2x2 Boxes)</option>
+                        <option value="5" selected>5 × 5 (4x4 Boxes)</option>
+                        <option value="8">8 × 8 (7x7 Boxes)</option>
+                        <option value="10">10 × 10 (9x9 Boxes)</option>
+                    </select>
+                </div>
+
+                <button id="btn-start" class="w-full mt-4 bg-brand hover:bg-indigo-600 text-white font-black text-lg py-4 rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:-translate-y-0.5 transition-all duration-200">
+                    START GAME
+                </button>
+            </div>
+        </section>
+
+        <section id="game-screen" class="w-full hidden flex-col items-center">
+            
+            <div class="w-full max-w-3xl flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
+                
+                <!-- Player 1 Score -->
+                <div id="p1-card" class="flex-1 w-full bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-lg border-b-4 border-p1-color transition-transform transform scale-100">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p id="display-p1-name" class="font-bold text-slate-500 dark:text-slate-400 text-sm uppercase tracking-wide">Player 1</p>
+                            <p id="display-p1-initial" class="text-xs bg-p1-color text-white px-2 py-0.5 rounded-full inline-block mt-1 font-bold">P</p>
+                        </div>
+                        <div id="display-p1-score" class="text-5xl font-black text-slate-800 dark:text-white">0</div>
+                    </div>
+                </div>
+
+                <!-- Turn Indicator -->
+                <div class="flex flex-col items-center justify-center min-w-[160px]">
+                    <div id="turn-badge" class="px-6 py-2 rounded-full text-sm font-black uppercase tracking-widest bg-p1-color text-white shadow-md transition-colors duration-300 animate-pulse">
+                        P1's Turn
+                    </div>
+                </div>
+                
+                <!-- Player 2 / Computer Score -->
+                <div id="p2-card" class="flex-1 w-full bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-lg border-b-4 border-slate-200 dark:border-slate-700 opacity-70 transition-all transform scale-95">
+                    <div class="flex items-center justify-between">
+                        <div id="display-p2-score" class="text-5xl font-black text-slate-800 dark:text-white">0</div>
+                        <div class="text-right">
+                            <p id="display-p2-name" class="font-bold text-slate-500 dark:text-slate-400 text-sm uppercase tracking-wide">Computer</p>
+                            <p id="display-p2-initial" class="text-xs bg-p2-color text-white px-2 py-0.5 rounded-full inline-block mt-1 font-bold float-right">C</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <p id="game-hint" class="text-sm text-slate-500 dark:text-slate-400 mb-4 text-center">Tap a line between two dots to claim a box. Complete a box to play again.</p>
+            <div id="board-container" role="group" aria-label="Dots and Boxes game board" tabindex="0">
+                <!-- Javascript will inject the grid elements here -->
+            </div>
+            
+            <div class="mt-10 flex gap-4">
+                <button id="btn-restart" class="px-6 py-3 rounded-xl font-bold bg-white dark:bg-slate-800 shadow hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Restart
+                </button>
+                <button id="btn-menu" class="px-6 py-3 rounded-xl font-bold bg-white dark:bg-slate-800 shadow hover:bg-slate-50 dark:hover:bg-slate-700 transition text-red-500 hover:text-red-600 dark:text-red-400">
+                    Main Menu
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="modal-gameover" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 transition-opacity">
+        <div class="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 max-w-md w-full text-center transform scale-95 transition-transform duration-300">
+            <h2 class="text-4xl font-black mb-2 text-slate-800 dark:text-white">GAME OVER</h2>
+            <div id="winner-text" class="text-2xl font-bold mb-8 text-brand">Player 1 Wins!</div>
+            
+            <div class="flex justify-center items-center gap-8 mb-8 bg-slate-50 dark:bg-slate-700/50 p-6 rounded-2xl">
+                <div class="flex flex-col text-p1-color">
+                    <span id="final-p1-name" class="font-bold text-sm uppercase">P1</span>
+                    <span id="final-p1-score" class="text-5xl font-black">0</span>
+                </div>
+                <div class="text-slate-300 dark:text-slate-600 font-black text-2xl">VS</div>
+                <div class="flex flex-col text-p2-color">
+                    <span id="final-p2-name" class="font-bold text-sm uppercase">P2</span>
+                    <span id="final-p2-score" class="text-5xl font-black">0</span>
+                </div>
+            </div>
+            
+            <div class="flex gap-4">
+                <button id="btn-modal-menu" class="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold py-4 rounded-xl transition">Menu</button>
+                <button id="btn-play-again" class="flex-1 bg-brand hover:bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] transition transform hover:-translate-y-0.5">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game State Structure
+        const Game = {
+            mode: 'single', // 'single' | 'two'
+            difficulty: 'medium', // 'easy' | 'medium' | 'hard'
+            dots: 5, // Board dimension (dots x dots)
+            
+            players: [
+                { id: 1, name: 'Player 1', initial: 'P', score: 0, class: 'p1', colorClass: 'p1-color' },
+                { id: 2, name: 'Computer', initial: 'C', score: 0, class: 'p2', colorClass: 'p2-color' }
+            ],
+            currentPlayerIndex: 0, 
+            
+            // Mathematical Board Representation
+            // True means the line is drawn.
+            hLines: [], // Array[rows][cols-1] for Horizontal lines
+            vLines: [], // Array[rows-1][cols] for Vertical lines
+            boxes: [],  // Array[rows-1][cols-1] tracking owner IDs (null if unowned)
+            
+            totalBoxes: 0,
+            boxesClaimed: 0,
+            isAiThinking: false,
+            isGameOver: false
+        };
+
+        // DOM Elements
+        const UI = {
+            setupScreen: document.getElementById('setup-screen'),
+            gameScreen: document.getElementById('game-screen'),
+            boardContainer: document.getElementById('board-container'),
+            modeSingle: document.getElementById('mode-single'),
+            modeTwo: document.getElementById('mode-two'),
+            p2Container: document.getElementById('p2-container'),
+            diffContainer: document.getElementById('difficulty-container'),
+            p1NameInput: document.getElementById('p1-name'),
+            p2NameInput: document.getElementById('p2-name'),
+            diffSelect: document.getElementById('difficulty'),
+            sizeSelect: document.getElementById('board-size'),
+            startBtn: document.getElementById('btn-start'),
+            
+            p1Card: document.getElementById('p1-card'),
+            p2Card: document.getElementById('p2-card'),
+            dispP1Name: document.getElementById('display-p1-name'),
+            dispP1Initial: document.getElementById('display-p1-initial'),
+            dispP1Score: document.getElementById('display-p1-score'),
+            dispP2Name: document.getElementById('display-p2-name'),
+            dispP2Initial: document.getElementById('display-p2-initial'),
+            dispP2Score: document.getElementById('display-p2-score'),
+            turnBadge: document.getElementById('turn-badge'),
+            
+            modalGameOver: document.getElementById('modal-gameover'),
+            winnerText: document.getElementById('winner-text'),
+            finalP1Name: document.getElementById('final-p1-name'),
+            finalP1Score: document.getElementById('final-p1-score'),
+            finalP2Name: document.getElementById('final-p2-name'),
+            finalP2Score: document.getElementById('final-p2-score'),
+            
+            btnTheme: document.getElementById('btn-theme')
+        };
+
+        // Theme Logic
+        let isDarkMode = false;
+        UI.btnTheme.addEventListener('click', () => {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            UI.btnTheme.innerText = isDarkMode ? '☀️' : '🌙';
+            UI.btnTheme.setAttribute('aria-label', isDarkMode ? 'Switch to light theme' : 'Switch to dark theme');
+        });
+
+        // Setup Screen Mode Toggles
+        UI.modeSingle.addEventListener('click', () => {
+            Game.mode = 'single';
+            UI.modeSingle.className = 'flex-1 py-3 rounded-lg bg-white dark:bg-slate-600 shadow-md text-brand dark:text-indigo-300 text-sm font-bold transition transform scale-100';
+            UI.modeTwo.className = 'flex-1 py-3 rounded-lg text-slate-500 dark:text-slate-400 text-sm font-bold transition hover:text-slate-800 dark:hover:text-slate-200';
+            UI.p2Container.classList.add('hidden');
+            UI.diffContainer.classList.remove('hidden');
+            UI.p2NameInput.value = 'Computer';
+        });
+
+        UI.modeTwo.addEventListener('click', () => {
+            Game.mode = 'two';
+            UI.modeTwo.className = 'flex-1 py-3 rounded-lg bg-white dark:bg-slate-600 shadow-md text-brand dark:text-indigo-300 text-sm font-bold transition transform scale-100';
+            UI.modeSingle.className = 'flex-1 py-3 rounded-lg text-slate-500 dark:text-slate-400 text-sm font-bold transition hover:text-slate-800 dark:hover:text-slate-200';
+            UI.p2Container.classList.remove('hidden');
+            UI.diffContainer.classList.add('hidden');
+            if (UI.p2NameInput.value === 'Computer') {
+                UI.p2NameInput.value = 'Player 2';
+            }
+        });
+
+        UI.startBtn.addEventListener('click', () => {
+            const p1Name = UI.p1NameInput.value.trim() || 'Player 1';
+            const p2Name = UI.p2NameInput.value.trim() || (Game.mode === 'single' ? 'Computer' : 'Player 2');
+            
+            Game.players[0].name = p1Name;
+            Game.players[1].name = p2Name;
+            
+            // Generate unique initials based on names
+            let init1 = p1Name.charAt(0).toUpperCase();
+            let init2 = p2Name.charAt(0).toUpperCase();
+            if (init1 === init2) { init1 += '1'; init2 += '2'; }
+            
+            Game.players[0].initial = init1;
+            Game.players[1].initial = init2;
+            
+            Game.difficulty = UI.diffSelect.value;
+            Game.dots = parseInt(UI.sizeSelect.value);
+            
+            startGame();
+        });
+
+        function startGame() {
+            // Reset Data State
+            Game.players[0].score = 0;
+            Game.players[1].score = 0;
+            Game.currentPlayerIndex = 0;
+            Game.isGameOver = false;
+            Game.isAiThinking = false;
+            
+            const n = Game.dots;
+            Game.totalBoxes = (n - 1) * (n - 1);
+            Game.boxesClaimed = 0;
+            
+            // Initialize Empty Arrays
+            Game.hLines = Array.from({length: n}, () => Array(n - 1).fill(false));
+            Game.vLines = Array.from({length: n - 1}, () => Array(n).fill(false));
+            Game.boxes = Array.from({length: n - 1}, () => Array(n - 1).fill(null));
+
+            // Setup UI
+            UI.setupScreen.classList.add('hidden');
+            UI.gameScreen.classList.remove('hidden');
+            UI.gameScreen.classList.add('flex');
+            
+            UI.dispP1Name.innerText = Game.players[0].name;
+            UI.dispP1Initial.innerText = Game.players[0].initial;
+            UI.dispP2Name.innerText = Game.players[1].name;
+            UI.dispP2Initial.innerText = Game.players[1].initial;
+            
+            updateScoreUI();
+            updateTurnUI();
+            buildBoardDOM();
+            const hint = document.getElementById('game-hint');
+            if (hint) hint.textContent = Game.mode === 'single'
+                ? `Playing against ${Game.players[1].name}. Complete a box to earn another turn.`
+                : 'Two-player match. Complete a box to earn another turn.';
+        }
+
+        function buildBoardDOM() {
+            const n = Game.dots;
+            UI.boardContainer.innerHTML = '';
+            
+            // Give each pair of dots a clear, consistent gap instead of squeezing 1fr tracks.
+            const viewportWidth = Math.min(window.innerWidth - 56, 720);
+            const padding = window.innerWidth <= 520 ? 14 : 24;
+            const pitch = Math.max(28, Math.min(68, Math.floor((viewportWidth - padding * 2) / (n - 1))));
+            const dotSize = pitch >= 42 ? 16 : 12;
+            UI.boardContainer.style.setProperty('--dot-size', `${dotSize}px`);
+            UI.boardContainer.style.gridTemplateColumns =
+                `repeat(${n - 1}, ${pitch}px ${pitch}px) ${dotSize}px`;
+            UI.boardContainer.style.gridTemplateRows =
+                `repeat(${n - 1}, ${pitch}px ${pitch}px) ${dotSize}px`;
+            UI.boardContainer.style.width = 'max-content';
+            UI.boardContainer.style.maxWidth = '100%';
+            UI.boardContainer.style.padding = `${padding}px`;
+            UI.boardContainer.style.gap = '0';
+            
+            // Create cells row by row
+            for (let r = 0; r < 2 * n - 1; r++) {
+                for (let c = 0; c < 2 * n - 1; c++) {
+                    const cell = document.createElement('div');
+                    
+                    if (r % 2 === 0 && c % 2 === 0) {
+                        // Dot
+                        cell.className = 'dot';
+                    } 
+                    else if (r % 2 === 0 && c % 2 !== 0) {
+                        // Horizontal Line (Hitbox)
+                        const logicR = Math.floor(r / 2);
+                        const logicC = Math.floor(c / 2);
+                        
+                        cell.className = 'line-hitbox h-line';
+                        cell.id = `h-${logicR}-${logicC}`;
+                        cell.dataset.type = 'h';
+                        cell.dataset.r = logicR;
+                        cell.dataset.c = logicC;
+                        cell.innerHTML = '<div class="line-visual"></div>';
+                        cell.addEventListener('click', handleLineClick);
+                    } 
+                    else if (r % 2 !== 0 && c % 2 === 0) {
+                        // Vertical Line (Hitbox)
+                        const logicR = Math.floor(r / 2);
+                        const logicC = Math.floor(c / 2);
+                        
+                        cell.className = 'line-hitbox v-line';
+                        cell.id = `v-${logicR}-${logicC}`;
+                        cell.dataset.type = 'v';
+                        cell.dataset.r = logicR;
+                        cell.dataset.c = logicC;
+                        cell.innerHTML = '<div class="line-visual"></div>';
+                        cell.addEventListener('click', handleLineClick);
+                    } 
+                    else {
+                        // Box (Space for initials)
+                        const logicR = Math.floor(r / 2);
+                        const logicC = Math.floor(c / 2);
+                        
+                        cell.className = 'box-cell';
+                        cell.id = `box-${logicR}-${logicC}`;
+                    }
+                    
+                    UI.boardContainer.appendChild(cell);
+                }
+            }
+        }
+
+        function handleLineClick(e) {
+            if (Game.isGameOver || Game.isAiThinking) return;
+            
+            const target = e.currentTarget;
+            if (target.classList.contains('played')) return; // Already clicked
+
+            const type = target.dataset.type;
+            const r = parseInt(target.dataset.r);
+            const c = parseInt(target.dataset.c);
+            
+            executeMove(type, r, c);
+        }
+
+        function executeMove(type, r, c) {
+            const player = Game.players[Game.currentPlayerIndex];
+            
+            // 1. Mark logic array
+            if (type === 'h') Game.hLines[r][c] = true;
+            else Game.vLines[r][c] = true;
+            
+            // 2. Update DOM visually
+            const element = document.getElementById(`${type}-${r}-${c}`);
+            element.classList.add('played', `played-${player.class}`);
+            
+            // 3. Check for completed boxes
+            const boxesCompleted = checkForCompletedBoxes(type, r, c, player);
+            
+            // 4. Update Game State based on results
+            if (boxesCompleted > 0) {
+                // Rule: Completing a box grants an EXTRA TURN.
+                player.score += boxesCompleted;
+                Game.boxesClaimed += boxesCompleted;
+                updateScoreUI();
+                
+                checkGameOver();
+                
+                // Keep the turn! If computer, trigger AI again.
+                if (!Game.isGameOver && Game.mode === 'single' && Game.currentPlayerIndex === 1) {
+                    triggerAI();
+                }
+            } else {
+                // No boxes completed, swap turn.
+                Game.currentPlayerIndex = 1 - Game.currentPlayerIndex;
+                updateTurnUI();
+                
+                // Trigger AI if it's now computer's turn
+                if (!Game.isGameOver && Game.mode === 'single' && Game.currentPlayerIndex === 1) {
+                    triggerAI();
+                }
+            }
+        }
+
+        function checkForCompletedBoxes(lineType, r, c, player) {
+            let completedCount = 0;
+            
+            // Helper to check a specific box (boxR, boxC) mathematically
+            const checkSingleBox = (boxR, boxC) => {
+                // Bounds check
+                if (boxR < 0 || boxR >= Game.dots - 1 || boxC < 0 || boxC >= Game.dots - 1) return 0;
+                
+                // Is it already claimed?
+                if (Game.boxes[boxR][boxC] !== null) return 0;
+                
+                // Check all 4 boundary lines
+                const top = Game.hLines[boxR][boxC];
+                const bottom = Game.hLines[boxR + 1][boxC];
+                const left = Game.vLines[boxR][boxC];
+                const right = Game.vLines[boxR][boxC + 1];
+                
+                if (top && bottom && left && right) {
+                    // Claim Box!
+                    Game.boxes[boxR][boxC] = player.id;
+                    
+                    // Update DOM
+                    const boxEl = document.getElementById(`box-${boxR}-${boxC}`);
+                    boxEl.classList.add(`claimed-${player.class}`);
+                    boxEl.innerHTML = `<span class="animate-pop">${player.initial}</span>`;
+                    
+                    return 1;
+                }
+                return 0;
+            };
+
+            // Depending on line type, it can complete at most 2 boxes adjacent to it
+            if (lineType === 'h') {
+                completedCount += checkSingleBox(r - 1, c); // Box above
+                completedCount += checkSingleBox(r, c);     // Box below
+            } else {
+                completedCount += checkSingleBox(r, c - 1); // Box left
+                completedCount += checkSingleBox(r, c);     // Box right
+            }
+            
+            return completedCount;
+        }
+
+        function updateScoreUI() {
+            UI.dispP1Score.innerText = Game.players[0].score;
+            UI.dispP2Score.innerText = Game.players[1].score;
+            
+            // Pop effect on active player's score
+            if (Game.currentPlayerIndex === 0) {
+                UI.dispP1Score.classList.remove('score-pop');
+                void UI.dispP1Score.offsetWidth; // trigger reflow
+                UI.dispP1Score.classList.add('score-pop');
+            } else {
+                UI.dispP2Score.classList.remove('score-pop');
+                void UI.dispP2Score.offsetWidth; 
+                UI.dispP2Score.classList.add('score-pop');
+            }
+        }
+
+        function updateTurnUI() {
+            const player = Game.players[Game.currentPlayerIndex];
+            
+            UI.turnBadge.innerText = `${player.name}'s Turn`;
+            
+            if (Game.currentPlayerIndex === 0) {
+                UI.turnBadge.className = 'px-6 py-2 rounded-full text-sm font-black uppercase tracking-widest text-white shadow-md transition-colors duration-300 bg-p1-color';
+                
+                UI.p1Card.classList.remove('opacity-70', 'border-slate-200', 'dark:border-slate-700', 'scale-95');
+                UI.p1Card.classList.add('border-p1-color', 'scale-100');
+                
+                UI.p2Card.classList.add('opacity-70', 'border-slate-200', 'dark:border-slate-700', 'scale-95');
+                UI.p2Card.classList.remove('border-p2-color', 'scale-100');
+            } else {
+                UI.turnBadge.className = 'px-6 py-2 rounded-full text-sm font-black uppercase tracking-widest text-white shadow-md transition-colors duration-300 bg-p2-color';
+                
+                UI.p2Card.classList.remove('opacity-70', 'border-slate-200', 'dark:border-slate-700', 'scale-95');
+                UI.p2Card.classList.add('border-p2-color', 'scale-100');
+                
+                UI.p1Card.classList.add('opacity-70', 'border-slate-200', 'dark:border-slate-700', 'scale-95');
+                UI.p1Card.classList.remove('border-p1-color', 'scale-100');
+            }
+        }
+
+        function triggerAI() {
+            Game.isAiThinking = true;
+            // Delay 500-800ms to simulate thinking
+            const delay = Math.floor(Math.random() * 300) + 500;
+            setTimeout(performAILogic, delay);
+        }
+
+        // Mathematical helper to count lines in a given box
+        function countLinesInBox(r, c) {
+            let count = 0;
+            if (Game.hLines[r][c]) count++;       // Top
+            if (Game.hLines[r + 1][c]) count++;   // Bottom
+            if (Game.vLines[r][c]) count++;       // Left
+            if (Game.vLines[r][c + 1]) count++;   // Right
+            return count;
+        }
+
+        function performAILogic() {
+            if (Game.isGameOver) return;
+
+            // 1. MUST RULE: Always find and complete any box that has exactly 3 lines drawn.
+            // Iterate over all boxes.
+            for (let br = 0; br < Game.dots - 1; br++) {
+                for (let bc = 0; bc < Game.dots - 1; bc++) {
+                    if (Game.boxes[br][bc] === null && countLinesInBox(br, bc) === 3) {
+                        // Found a box to complete! Find the specific missing line.
+                        let move = null;
+                        if (!Game.hLines[br][bc]) move = { type: 'h', r: br, c: bc };
+                        else if (!Game.hLines[br + 1][bc]) move = { type: 'h', r: br + 1, c: bc };
+                        else if (!Game.vLines[br][bc]) move = { type: 'v', r: br, c: bc };
+                        else if (!Game.vLines[br][bc + 1]) move = { type: 'v', r: br, c: bc + 1 };
+                        
+                        if (move) {
+                            executeMove(move.type, move.r, move.c);
+                            Game.isAiThinking = false;
+                            return; // Exit out, move executed.
+                        }
+                    }
+                }
+            }
+
+            // 2. If no boxes can be completed, evaluate all available valid moves.
+            let availableMoves = [];
+            
+            // Gather Horizontal available lines
+            for (let r = 0; r < Game.dots; r++) {
+                for (let c = 0; c < Game.dots - 1; c++) {
+                    if (!Game.hLines[r][c]) availableMoves.push({ type: 'h', r, c });
+                }
+            }
+            // Gather Vertical available lines
+            for (let r = 0; r < Game.dots - 1; r++) {
+                for (let c = 0; c < Game.dots; c++) {
+                    if (!Game.vLines[r][c]) availableMoves.push({ type: 'v', r, c });
+                }
+            }
+
+            if (availableMoves.length === 0) return; // Fallback
+
+            // 3. Filter into Safe vs Dangerous (giveaway) moves
+            let safeMoves = [];
+            let dangerousMoves = [];
+
+            availableMoves.forEach(move => {
+                let isSafe = true;
+
+                // Temporarily apply the line to test consequences
+                if (move.type === 'h') Game.hLines[move.r][move.c] = true;
+                else Game.vLines[move.r][move.c] = true;
+
+                // Check adjacent boxes to see if any now have EXACTLY 3 lines
+                if (move.type === 'h') {
+                    if (move.r > 0 && countLinesInBox(move.r - 1, move.c) === 3) isSafe = false;
+                    if (move.r < Game.dots - 1 && countLinesInBox(move.r, move.c) === 3) isSafe = false;
+                } else {
+                    if (move.c > 0 && countLinesInBox(move.r, move.c - 1) === 3) isSafe = false;
+                    if (move.c < Game.dots - 1 && countLinesInBox(move.r, move.c) === 3) isSafe = false;
+                }
+
+                // Revert the temporary state
+                if (move.type === 'h') Game.hLines[move.r][move.c] = false;
+                else Game.vLines[move.r][move.c] = false;
+
+                if (isSafe) safeMoves.push(move);
+                else dangerousMoves.push(move);
+            });
+
+            let chosenMove = null;
+
+            // 4. Apply difficulty logic
+            if (Game.difficulty === 'easy') {
+                // Completely random (even on easy, we satisfied the prompt requirement to always take 3-line boxes first)
+                chosenMove = availableMoves[Math.floor(Math.random() * availableMoves.length)];
+            } else if (Game.difficulty === 'medium') {
+                // Prefer safe moves 80% of the time, to introduce slight flaws
+                if (safeMoves.length > 0 && Math.random() < 0.8) {
+                    chosenMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
+                } else {
+                    chosenMove = availableMoves[Math.floor(Math.random() * availableMoves.length)];
+                }
+            } else {
+                // HARD: ALWAYS pick safe moves if they exist.
+                if (safeMoves.length > 0) {
+                    chosenMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
+                } else {
+                    // Forced to give away points. 
+                    chosenMove = dangerousMoves[Math.floor(Math.random() * dangerousMoves.length)];
+                }
+            }
+
+            // Execute final selected move
+            if (chosenMove) {
+                executeMove(chosenMove.type, chosenMove.r, chosenMove.c);
+            }
+            Game.isAiThinking = false;
+        }
+
+        function checkGameOver() {
+            if (Game.boxesClaimed >= Game.totalBoxes) {
+                Game.isGameOver = true;
+                setTimeout(showGameOverScreen, 600);
+            }
+        }
+
+        function showGameOverScreen() {
+            UI.modalGameOver.classList.remove('hidden');
+            
+            const p1 = Game.players[0];
+            const p2 = Game.players[1];
+            
+            UI.finalP1Name.innerText = p1.name;
+            UI.finalP1Score.innerText = p1.score;
+            UI.finalP2Name.innerText = p2.name;
+            UI.finalP2Score.innerText = p2.score;
+            
+            if (p1.score > p2.score) {
+                UI.winnerText.innerText = `${p1.name} Wins!`;
+                UI.winnerText.className = 'text-3xl font-black mb-8 text-p1-color uppercase';
+            } else if (p2.score > p1.score) {
+                UI.winnerText.innerText = `${p2.name} Wins!`;
+                UI.winnerText.className = 'text-3xl font-black mb-8 text-p2-color uppercase';
+            } else {
+                UI.winnerText.innerText = "It's a Draw!";
+                UI.winnerText.className = 'text-3xl font-black mb-8 text-slate-500 dark:text-slate-300 uppercase';
+            }
+        }
+
+        function resetToMenu() {
+            UI.modalGameOver.classList.add('hidden');
+            UI.gameScreen.classList.add('hidden');
+            UI.setupScreen.classList.remove('hidden');
+        }
+
+        // Control Buttons Listeners
+        document.getElementById('btn-restart').addEventListener('click', () => {
+            if (confirm("Restart game with same settings?")) startGame();
+        });
+        document.getElementById('btn-menu').addEventListener('click', () => {
+            if (confirm("Quit to main menu?")) resetToMenu();
+        });
+        document.getElementById('btn-play-again').addEventListener('click', () => {
+            UI.modalGameOver.classList.add('hidden');
+            startGame();
+        });
+        document.getElementById('btn-modal-menu').addEventListener('click', resetToMenu);
+
+    </script>
+</body>
+</html>
